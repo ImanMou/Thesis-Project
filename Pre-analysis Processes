@@ -1,0 +1,116 @@
+
+### Merging the Forward and Reverse reads of the Chinsese Dataset using PEAR
+ #!/bin/bash
+
+# Defining the input folder containing the fastq files
+input_folder="test-Ch-fastq"
+
+# Defining the output folder for merged reads
+output_folder="Merged-Reads"
+
+# Checking if the input folder exists
+if [ -d "$input_folder" ]; then
+
+  # Creating and checking if the output folder exists,
+  if [ ! -d "$output_folder" ]; then
+    mkdir "$output_folder"
+  fi
+
+  # Looping through each pair of forward and reverse reads in the input folder
+  for forward_read in "$input_folder"/*_1.fastq; do
+    reverse_read="${forward_read/_1/_2}"
+
+    # Extracting sample name from the file name
+    sample_name=$(basename "$forward_read" | cut -d "_" -f 1)
+
+    # Defining the output file for the merged reads
+    output_file="$output_folder/$sample_name.merged.fastq"
+
+    # Using PEAR to merge forward and reverse reads
+    pear -f "$forward_read" -r "$reverse_read" -o "$output_file" -y 12G -j 3
+
+    # Displaing information about the merging process
+    echo "Merged reads for $sample_name and saved to $output_file"
+  done
+
+else
+  echo "Error: Input folder $input_folder not found."
+fi
+
+------------------------------------------------------------------------------------------------------------------------------------
+
+#### Moving the files from one file to another 
+#!/bin/bash
+
+# Defining the source folder containing the merged files
+source_folder="Merged-Reads"
+
+# Defining the destination folder for unassembled forward reads
+destination_folder="Unassembled_R"
+
+# Checking if the source folder exists
+if [ -d "$source_folder" ]; then
+
+  # Checking if the destination folder exists, create it if not
+  if [ ! -d "$destination_folder" ]; then
+    mkdir "$destination_folder"
+  fi
+
+  # Moveing files with names ending in .merged.fastq.unassembled.forward.fastq
+  mv "$source_folder"/*.merged.fastq.unassembled.reverse.fastq "$destination_folder/"
+
+  echo "Moved unassembled forward reads to $destination_folder"
+
+else
+  echo "Error: Source folder $source_folder not found."
+fi
+
+
+------------------------------------------------------------------------------------------------------------------------------------
+#### Renaming the merged files 
+#!/bin/bash
+
+# Defining the folder containing the files
+folder="Merged-Reads"
+
+# Changing directory to the specified folder (making sure we are in the desired directory)
+cd "$folder" || exit
+
+# Renaming files with names ending in .merged.fastq.assembled.fastq to end with .fastq
+for file in *.merged.fastq.assembled.fastq; do
+  mv "$file" "${file%.merged.fastq.assembled.fastq}.fastq"
+done
+
+------------------------------------------------------------------------------------------------------------------------------------
+
+#### Renaming the Ch fastq files
+#!/bin/bash
+
+# Defining the path to the Excel sheet
+file_path="Ch-renaming.xlsx"
+
+# Checking if the Excel sheet exists
+if [ -f "$file_path" ]; then
+  # Reading each line from the tab-separated Excel sheet
+  while IFS=$'\t' read -r old_name new_name; do
+    # Checking if both old_name and new_name are non-empty
+    if [ -n "$old_name" ] && [ -n "$new_name" ]; then
+      # Constructing  filenames with appropriate extensions
+      old_file="${old_name}.fastq"
+      new_file="${new_name}.fastq"
+
+      # Checking if the file to be renamed exists
+      if [ -f "$old_file" ]; then
+        # Renaming the file
+        mv "$old_file" "$new_file"
+        echo "Renamed: $old_file to $new_file"
+      else
+        # Displaying  an error message if the file is not found
+        echo "Error: File $old_file not found."
+      fi
+    fi
+  done < <(xlsx2csv -d tab "$file_path")
+else
+  # Displaying an error message if the Excel sheet is not found
+  echo "Error: File $file_path not found."
+fi
