@@ -1,0 +1,228 @@
+#!/bin/bash
+
+
+# Healthy vs Patient_Negative
+echo -e "[     INFO    ] Healthy vs Patient_Negative"
+
+qiime feature-table filter-samples \
+--i-table ../02_feature_table/feature-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--p-where "[Diagnosis] IN ('Healthy','Patient_Negative')" \
+--o-filtered-table Diagnosis-H-PN-table.qza
+
+qiime composition add-pseudocount \
+--i-table Diagnosis-H-PN-table.qza \
+--o-composition-table comp-Diagnosis-H-PN-table.qza \
+--verbose
+
+qiime composition ancom \
+--i-table comp-Diagnosis-H-PN-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--m-metadata-column Diagnosis \
+--p-difference-function 'mean_difference' \
+--o-visualization diff-abundance-diagnosis-h-pn.qzv \
+--verbose
+
+
+# Healthy vs Patient_Positive
+echo -e "[     INFO    ] Healthy vs Patient_Positive"
+
+qiime feature-table filter-samples \
+--i-table ../02_feature_table/feature-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--p-where "[Diagnosis] IN ('Healthy','Patient_Positive')" \
+--o-filtered-table Diagnosis-H-PP-table.qza
+
+qiime composition add-pseudocount \
+--i-table Diagnosis-H-PP-table.qza \
+--o-composition-table comp-Diagnosis-H-PP-table.qza \
+--verbose
+
+qiime composition ancom \
+--i-table comp-Diagnosis-H-PP-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--m-metadata-column Diagnosis \
+--p-difference-function 'mean_difference' \
+--o-visualization diff-abundance-diagnosis-h-pp.qzv \
+--verbose
+
+# Patient_Negative vs Patient_Positive
+echo -e "[     INFO    ] Patient_Negative vs Patient_Positive"
+
+qiime feature-table filter-samples \
+--i-table ../02_feature_table/feature-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--p-where "[Diagnosis] IN ('Patient_Negative','Patient_Positive')" \
+--o-filtered-table Diagnosis-PN-PP-table.qza
+
+qiime composition add-pseudocount \
+--i-table Diagnosis-PN-PP-table.qza \
+--o-composition-table comp-Diagnosis-PN-PP-table.qza \
+--verbose
+
+qiime composition ancom \
+--i-table comp-Diagnosis-PN-PP-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--m-metadata-column Diagnosis \
+--p-difference-function 'mean_difference' \
+--o-visualization diff-abundance-diagnosis-pn-pp.qzv \
+--verbose
+
+
+# Severe vs NonSevere
+echo -e "[     INFO    ] Severe vs NonSevere"
+
+qiime feature-table filter-samples \
+--i-table ../02_feature_table/feature-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--p-where "[Severity] IN ('Severe','NonSevere')" \
+--o-filtered-table Severity-table.qza
+
+qiime composition add-pseudocount \
+--i-table Severity-table.qza \
+--o-composition-table comp-Severity-table.qza \
+--verbose
+
+qiime composition ancom \
+--i-table comp-Severity-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--m-metadata-column Severity \
+--p-difference-function 'mean_difference' \
+--o-visualization diff-abundance-severity.qzv \
+--verbose
+
+
+# HF vs HT
+echo -e "[     INFO    ] HF vs HT"
+
+qiime feature-table filter-samples \
+--i-table ../02_feature_table/feature-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--p-where "[Group-SampleType] IN ('HF','HT')" \
+--o-filtered-table Group-SampleType-HF-HT-table.qza
+
+qiime composition add-pseudocount \
+--i-table Group-SampleType-HF-HT-table.qza \
+--o-composition-table comp-Group-SampleType-HF-HT-table.qza \
+--verbose
+
+qiime composition ancom \
+--i-table comp-Group-SampleType-HF-HT-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--m-metadata-column Group-SampleType \
+--p-difference-function 'mean_difference' \
+--o-visualization diff-abundance-group-sampletype-hf-ht.qzv \
+--verbose
+
+
+# PF vs PT
+echo -e "[     INFO    ] PF vs PT"
+
+qiime feature-table filter-samples \
+--i-table ../02_feature_table/feature-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--p-where "[Group-SampleType] IN ('PF','PT')" \
+--o-filtered-table Group-SampleType-PF-PT-table.qza
+
+qiime composition add-pseudocount \
+--i-table Group-SampleType-PF-PT-table.qza \
+--o-composition-table comp-Group-SampleType-PF-PT-table.qza \
+--verbose
+
+qiime composition ancom \
+--i-table comp-Group-SampleType-PF-PT-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--m-metadata-column Group-SampleType \
+--p-difference-function 'mean_difference' \
+--o-visualization diff-abundance-group-sampletype-pf-pt.qzv \
+--verbose
+
+# HF vs PF
+echo -e "[     INFO    ] HF vs PF"
+
+qiime feature-table filter-samples \
+--i-table ../02_feature_table/feature-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--p-where "[Group-SampleType] IN ('HF','PF')" \
+--o-filtered-table Group-SampleType-HF-PF-table.qza
+
+qiime composition add-pseudocount \
+--i-table Group-SampleType-HF-PF-table.qza \
+--o-composition-table comp-Group-SampleType-HF-PF-table.qza \
+--verbose
+
+qiime composition ancom \
+--i-table comp-Group-SampleType-HF-PF-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--m-metadata-column Group-SampleType \
+--p-difference-function 'mean_difference' \
+--o-visualization diff-abundance-group-sampletype-hf-pf.qzv \
+--verbose
+
+# HT vs PT
+echo -e "[     INFO    ] HT vs PT"
+
+qiime feature-table filter-samples \
+--i-table ../02_feature_table/feature-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--p-where "[Group-SampleType] IN ('HT','PT')" \
+--o-filtered-table Group-SampleType-HT-PT-table.qza
+
+qiime composition add-pseudocount \
+--i-table Group-SampleType-HT-PT-table.qza \
+--o-composition-table comp-Group-SampleType-HT-PT-table.qza \
+--verbose
+
+qiime composition ancom \
+--i-table comp-Group-SampleType-HT-PT-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--m-metadata-column Group-SampleType \
+--p-difference-function 'mean_difference' \
+--o-visualization diff-abundance-group-sampletype-ht-pt.qzv \
+--verbose
+
+
+# Fecal vs Throat
+echo -e "[     INFO    ] Fecal vs Throat"
+
+qiime feature-table filter-samples \
+--i-table ../02_feature_table/feature-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--p-where "[Microbiome-type] IN ('Fecal','Throat')" \
+--o-filtered-table Microbiome-type-table.qza
+
+qiime composition add-pseudocount \
+--i-table Microbiome-type-table.qza \
+--o-composition-table comp-Microbiome-type-table.qza \
+--verbose
+
+qiime composition ancom \
+--i-table comp-Microbiome-type-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--m-metadata-column Microbiome-type \
+--p-difference-function 'mean_difference' \
+--o-visualization diff-abundance-microbiome-type.qzv \
+--verbose
+
+
+# Male vs Female
+echo -e "[     INFO    ] Male vs Female"
+
+qiime feature-table filter-samples \
+--i-table ../02_feature_table/feature-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--p-where "[Sex] IN ('male','female')" \
+--o-filtered-table Sex-table.qza
+
+qiime composition add-pseudocount \
+--i-table Sex-table.qza \
+--o-composition-table comp-Sex-table.qza \
+--verbose
+
+qiime composition ancom \
+--i-table comp-Sex-table.qza \
+--m-metadata-file ../../01_Data/New_Dataset/SraRunTable_Filtered.tsv \
+--m-metadata-column Sex \
+--p-difference-function 'mean_difference' \
+--o-visualization diff-abundance-sex.qzv \
+--verbose
