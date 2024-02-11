@@ -1,0 +1,66 @@
+### Differential Abundance Analysis using DESeq2 - v1.0 (Jan, 2024)
+
+# Install packages
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("DESeq2",force = TRUE)
+
+# Load packages
+library(phyloseq)
+library("DESeq2"); packageVersion("DESeq2")
+
+# Load Feature table
+feature.table <- read.csv("feature-table.tsv",header = TRUE, sep = "\t", row.names = 1)
+
+# Load Taxa table
+taxa.table <- read.csv("taxonomy.tsv",header = TRUE, sep = "\t", row.names = 1)
+
+# Load metadata table
+metadata.table <- read.csv("metadata.tsv",header = TRUE, sep = "\t", row.names = 1,stringsAsFactors = TRUE)
+
+# Transform into matrixes otu and tax tables (sample table can be left as data frame)
+otu_mat <- as.matrix(feature.table)
+tax_mat <- as.matrix(taxa.table)
+
+# Transform to phyloseq objects
+OTU <- otu_table(otu_mat,taxa_are_rows = TRUE)
+TAXA <- tax_table(tax_mat)
+samples <- sample_data(metadata.table)
+phy_obj <- phyloseq(OTU,TAXA,samples)
+
+# Explore Object
+phy_obj
+sample_names(phy_obj)
+rank_names(phy_obj)
+sample_variables(phy_obj)
+head(sample_data(phy_obj)$Diagnosis, 10)
+
+# Subset data
+subset_dataset <- subset_samples(phy_obj, !(Sex %in% c("Healthy")))
+subset_dataset
+head(sample_data(subset_dataset)$Sex, 10)
+
+# Convert Phyloseq object to DESeq2 object
+diagdds = phyloseq_to_deseq2(subset_dataset, ~ Sex)
+
+# DESeq2 test
+# calculate geometric means prior to estimate size factors
+gm_mean = function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+geoMeans = apply(counts(diagdds), 1, gm_mean)
+diagdds = estimateSizeFactors(diagdds, geoMeans = geoMeans)
+diagdds = DESeq(diagdds, fitType="local")
+
+# Investigate test results table
+res = results(diagdds)
+res = res[order(res$padj, na.last=NA), ]
+
+# Filter OTUs based on padj
+alpha = 0.05
+sigtab = res[(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(subset_dataset)[rownames(sigtab), ], "matrix"))
+
+sigtab = sigtab[, c("baseMean", "log2FoldChange", "lfcSE", "padj", "Phylum", "Order", "Genus")]
+write.csv(sigtab,"differential_abundance_sex.csv")
