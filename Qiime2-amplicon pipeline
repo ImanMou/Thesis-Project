@@ -1,0 +1,582 @@
+#!/bin/bash
+
+SCRIPT="QIIME 2 Amplicon Pipeline"
+
+## Command line options
+## -----------------------------------------------------------------------------
+while getopts i:o:c:t: OPTION
+do
+case "${OPTION}"
+in
+# Input metadata file
+i) INPUT=${OPTARG};;
+# Parent output directory
+o) OUTPUT=${OPTARG};;
+# Classifier for taxonomic analysis
+c) CLASSIFIER=${OPTARG};;
+# Threads
+t) THREADS=${OPTARG};;
+
+esac
+done
+## -----------------------------------------------------------------------------
+
+## Print user args
+## -----------------------------------------------------------------------------                     
+echo -e "[     INFO    ] Input Metadata File  : ${INPUT}"
+echo -e "[     INFO    ] Output Directory : ${OUTPUT}"
+echo -e "[     INFO    ] Classifier for Taxonomic Analysis : ${CLASSIFIER}"
+echo -e "[     INFO    ] Threads = ${THREADS}"
+## -----------------------------------------------------------------------------
+
+## User confirmation
+## -----------------------------------------------------------------------------
+read -p "Continue (y/n)?" CHOICE
+case "$CHOICE" in 
+	y|Y ) 
+
+## Main function
+## -----------------------------------------------------------------------------                     
+main () {
+
+## Print pipeline info
+## -----------------------------------------------------------------------------                     
+echo -e "[     INFO    ] ${SCRIPT}"
+echo -e "[     INFO    ] ${AUTHOR}"
+## -----------------------------------------------------------------------------  
+
+## Print user args
+## -----------------------------------------------------------------------------                     
+echo -e "[     INFO    ] Input Metadata File  : ${INPUT}"
+echo -e "[     INFO    ] Output Directory : ${OUTPUT}"
+echo -e "[     INFO    ] Classifier for Taxonomic Analysis : ${CLASSIFIER}"
+echo -e "[     INFO    ] Threads = ${THREADS}\n"
+## -----------------------------------------------------------------------------
+
+## Print start date/time
+## -----------------------------------------------------------------------------                     
+echo -e "[    START    ] $(date)\n"
+## -----------------------------------------------------------------------------  
+
+## Create output directory
+## -----------------------------------------------------------------------------                     
+echo -e "[   PROCESS   ] Creating output directory..."
+
+# Check if output directory is exist
+if [ -d "${OUTPUT}" ] 
+then
+    echo -e "[    ERROR    ] The output directory already exists.\n"
+    exit 0
+else
+    mkdir -p $OUTPUT/
+fi
+
+echo -e "[      OK     ] Output directory is ready on ${OUTPUT}\n"
+## ----------------------------------------------------------------------------- 
+
+## Importing sequence data
+## -----------------------------------------------------------------------------
+echo -e "[   PROCESS   ] Importing sequence data..."
+
+### Importing sequence data from a manifest file and creating a QIIME 2 artifact
+# Output: QIIME 2 artifact (raw-single-end-demux.qza) containing demultiplexed sequences.
+qiime tools import \
+  --type 'SampleData[SequencesWithQuality]' \
+  --input-path ${INPUT} \
+  --output-path ${OUTPUT}/raw-single-end-demux.qza \
+  --input-format SingleEndFastqManifestPhred33V2
+
+### Summarizing and visualizing the demultiplexed sequences
+# Output: Visualization (test-single-end-demux.qzv) providing summary information about demultiplexed sequences.
+qiime demux summarize \
+  --i-data ${OUTPUT}/raw-single-end-demux.qza \
+  --o-visualization ${OUTPUT}/raw-single-end-demux.qzv
+
+
+### Validating the integrity and format of the demultiplexed sequence artifact.
+# Output: Validation results confirming the integrity and format of the demultiplexed sequence artifact.
+qiime tools validate ${OUTPUT}/raw-single-end-demux.qza
+
+echo -e "[      OK     ] Importing is done.\n"
+## -----------------------------------------------------------------------------
+
+## Sequence quality control and feature table construction
+## -----------------------------------------------------------------------------
+echo -e "[   PROCESS   ] Sequence quality control and feature table construction..."
+
+# Create QC and feature table output directories
+QC_DIR=$OUTPUT/01_qc
+mkdir -p $QC_DIR
+
+FT_DIR=$OUTPUT/02_feature_table
+mkdir -p $FT_DIR
+
+### Performing denoising on the demultiplexed sequences
+# Outputs:
+# Feature table (feature-table.qza): Contains feature abundances.
+# Representative sequences (rep-seqs.qza): Sequences representing each feature.
+# Denoising statistics (denoising-stats.qza): Summary statistics from the denoising process.
+qiime dada2 denoise-single \
+  --i-demultiplexed-seqs ${OUTPUT}/raw-single-end-demux.qza \
+  --p-trunc-len 0 \
+  --p-trunc-q 20 \
+  --p-n-threads ${THREADS} \
+  --p-n-reads-learn 1000000 \
+  --verbose \
+  --o-table ${FT_DIR}/feature-table.qza \
+  --o-representative-sequences ${FT_DIR}/rep-seqs.qza \
+  --o-denoising-stats ${QC_DIR}/denoising-stats.qza
+
+### Tabulating and visualizing the denoising stats
+# Output: Visualization (test-stats-dada2.qzv) tabulating denoising statistics.
+qiime metadata tabulate \
+  --m-input-file ${QC_DIR}/denoising-stats.qza \
+  --verbose \
+  --o-visualization ${QC_DIR}/denoising-stats.qzv
+
+### Generating a summary visualizations for the feature table
+# Output: Visualization (feature-table.qza) summarizing information about the feature table.
+qiime feature-table summarize \
+  --i-table ${FT_DIR}/feature-table.qza \
+  --verbose \
+  --o-visualization ${FT_DIR}/feature-table.qzv \
+  --m-sample-metadata-file ${INPUT}
+
+### Tabulateing and visualizing the feature sequences
+qiime feature-table tabulate-seqs \
+  --i-data ${FT_DIR}/rep-seqs.qza \
+  --verbose \
+  --o-visualization ${FT_DIR}/rep-seqs.qzv
+
+qiime tools export \
+  --input-path ${FT_DIR}/feature-table.qza \
+  --output-path ${FT_DIR}
+biom convert -i ${FT_DIR}/feature-table.biom -o ${FT_DIR}/feature-table.tsv --to-tsv
+
+echo -e "[      OK     ] Sequence quality control and feature table construction are done.\n"
+## -----------------------------------------------------------------------------
+
+## Generating a tree for phylogenetic diversity analyses
+## -----------------------------------------------------------------------------
+echo -e "[   PROCESS   ] Generating a tree for phylogenetic diversity analyses..."
+
+# Create phylogenetic tree output directory
+PHT_DIR=$OUTPUT/03_phylogenetic_tree
+mkdir -p $PHT_DIR
+
+### Aligning representative sequences and generating a phylogenetic tree using MAFFT and FastTree
+# Outputs:
+# - Alignment (aligned-rep-seqs.qza): Aligned representative sequences.
+# - Masked alignment (masked-aligned-rep-seqs.qza): Masked aligned representative sequences.
+# - Unrooted tree (unrooted-tree.qza): Phylogenetic tree without a specified root.
+# - Rooted tree (rooted-tree.qza): Rooted phylogenetic tree.
+qiime phylogeny align-to-tree-mafft-fasttree \
+  --p-n-threads ${THREADS} \
+  --p-parttree False \
+  --verbose \
+  --i-sequences ${FT_DIR}/rep-seqs.qza \
+  --o-alignment ${PHT_DIR}/aligned-rep-seqs.qza \
+  --o-masked-alignment ${PHT_DIR}/masked-aligned-rep-seqs.qza \
+  --o-tree ${PHT_DIR}/unrooted-tree.qza \
+  --o-rooted-tree ${PHT_DIR}/rooted-tree.qza
+
+echo -e "[      OK     ] Generating a tree for phylogenetic diversity analyses is done.\n"
+## -----------------------------------------------------------------------------
+
+## Alpha and beta diversity analysis
+## -----------------------------------------------------------------------------
+echo -e "[   PROCESS   ] Alpha and beta diversity analysis..."
+
+# Create diversity analysis output directory
+ABD_DIR=$OUTPUT/04_diversity
+
+### Alpha and beta diversity analyses to calculate core metrics 
+# Output: Directory (04_diversity) containing core metrics of phylogenetic diversity.
+qiime diversity core-metrics-phylogenetic \
+  --i-phylogeny ${PHT_DIR}/rooted-tree.qza \
+  --i-table ${FT_DIR}/feature-table.qza \
+  --p-sampling-depth 40000 \
+  --m-metadata-file ${INPUT} \
+  --p-n-jobs-or-threads ${THREADS} \
+  --parallel \
+  --output-dir $ABD_DIR \
+  --verbose
+
+### Alpha Diversity Analysis
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity $ABD_DIR/faith_pd_vector.qza \
+  --m-metadata-file ${INPUT} \
+  --o-visualization $ABD_DIR/faith-pd-group-significance.qzv \
+  --verbose
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity $ABD_DIR/observed_features_vector.qza \
+  --m-metadata-file ${INPUT} \
+  --o-visualization $ABD_DIR/observed-features-group-significance.qzv \
+  --verbose
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity $ABD_DIR/shannon_vector.qza \
+  --m-metadata-file ${INPUT} \
+  --o-visualization $ABD_DIR/shannon-group-significance.qzv \
+  --verbose
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity $ABD_DIR/evenness_vector.qza \
+  --m-metadata-file ${INPUT} \
+  --o-visualization $ABD_DIR/evenness-group-significance.qzv \
+  --verbose 
+
+### Beta Diversity Analysis
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Diagnosis \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/unweighted-unifrac-diagnosis-significance.qzv \
+  --verbose
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Microbiome-type \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/unweighted-unifrac-microbiome-type-significance.qzv \
+  --verbose 
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/weighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Diagnosis \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/weighted-unifrac-diagnosis-significance.qzv \
+  --verbose
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/weighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Microbiome-type \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/weighted-unifrac-microbiome-type-significance.qzv \
+  --verbose 
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/jaccard_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Diagnosis \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/jaccard-diagnosis-significance.qzv \
+  --verbose
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/jaccard_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Microbiome-type \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/jaccard-microbiome-type-significance.qzv \
+  --verbose 
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/bray_curtis_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Diagnosis \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/bray-curtis-diagnosis-significance.qzv \
+  --verbose
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/bray_curtis_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Microbiome-type \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/bray-curtis-microbiome-type-significance.qzv \
+  --verbose 
+
+
+# Severity
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Severity \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/unweighted-unifrac-severity-significance.qzv \
+  --verbose
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/weighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Severity \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/weighted-unifrac-severity-significance.qzv \
+  --verbose
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/jaccard_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Severity \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/jaccard-severity-significance.qzv \
+  --verbose
+
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/bray_curtis_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Severity \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/bray-curtis-severity-significance.qzv \
+  --verbose
+
+
+# Group-SampleType
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Group-SampleType \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/unweighted-unifrac-group-sampletype-significance.qzv \
+  --verbose
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/weighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Group-SampleType \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/weighted-unifrac-group-sampletype-significance.qzv \
+  --verbose
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/jaccard_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Group-SampleType \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/jaccard-group-sampletype-significance.qzv \
+  --verbose
+
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix $ABD_DIR/bray_curtis_distance_matrix.qza \
+  --m-metadata-file ${INPUT} \
+  --m-metadata-column Group-SampleType \
+  --p-method 'permanova' \
+  --p-pairwise True \
+  --p-permutations 10000 \
+  --o-visualization $ABD_DIR/bray-curtis-group-sampletype-significance.qzv \
+  --verbose
+
+### Alpha rarefaction plotting
+
+# The value that you provide for --p-max-depth should be determined by reviewing the “Frequency per sample” information presented in the table.qzv file that was created above. In general, choosing a value that is somewhere around the median frequency seems to work well, but you may want to increase that value if the lines in the resulting rarefaction plot don’t appear to be leveling out, or decrease that value if you seem to be losing many of your samples due to low total frequencies closer to the minimum sampling depth than the maximum sampling depth.
+qiime diversity alpha-rarefaction \
+  --i-table ${FT_DIR}/feature-table.qza \
+  --i-phylogeny ${PHT_DIR}/rooted-tree.qza \
+  --p-max-depth 63140 \
+  --m-metadata-file ${INPUT} \
+  --o-visualization $ABD_DIR/alpha-rarefaction.qzv
+
+echo -e "[      OK     ] Alpha and beta diversity analysis is done.\n"
+## -----------------------------------------------------------------------------
+
+## Taxonomic analysis
+## -----------------------------------------------------------------------------
+echo -e "[   PROCESS   ] Taxonomic analysis..."
+
+# Create taxonomic analysis output directory
+TC_DIR=$OUTPUT/05_taxonomic_classification
+mkdir -p $TC_DIR
+
+### Classifying feature sequences for taxonomic analysis
+# Output: Taxonomic classification (test-taxonomy.qza) of feature sequences.
+qiime feature-classifier classify-sklearn \
+  --i-classifier ${CLASSIFIER} \
+  --i-reads ${FT_DIR}/rep-seqs.qza \
+  --p-n-jobs -1 \
+  --verbose \
+  --o-classification ${TC_DIR}/taxonomy.qza
+
+### Tabulating and visualizing taxonomy data
+qiime metadata tabulate \
+  --m-input-file ${TC_DIR}/taxonomy.qza \
+  --o-visualization ${TC_DIR}/taxonomy.qzv \
+  --verbose
+
+### Exporting the relative frequency table
+qiime tools export \
+    --input-path ${TC_DIR}/taxonomy.qza \
+    --output-path ${TC_DIR}
+biom convert -i ${TC_DIR}/feature-table.biom -o ${TC_DIR}/taxonomy.tsv --to-tsv
+
+### Creating taxa bar plots for taxonomic abundance based on the feature table and taxonomy
+# Output: Visualization (test-taxa-bar-plots.qzv) containing taxa bar plots for taxa abundance.
+qiime taxa barplot \
+  --i-table ${FT_DIR}/feature-table.qza \
+  --i-taxonomy ${TC_DIR}/taxonomy.qza \
+  --m-metadata-file ${INPUT} \
+  --o-visualization ${TC_DIR}/taxa-bar-plots.qzv \
+  --verbose
+
+RANKS=("" "Kingdom" "Phylum" "Class" "Order" "Family" "Genus" "Species")
+
+for ((i=1; i<=7; i++)); do
+
+    mkdir -p ${TC_DIR}/${RANKS[$i]}
+
+    ### Collapsing taxa at a specified level in the feature table
+    # Output: Feature table (lvl1-table.qza) with collapsed taxa at the specified level.
+    qiime taxa collapse \
+    --i-table ${FT_DIR}/feature-table.qza \
+    --i-taxonomy ${TC_DIR}/taxonomy.qza \
+    --p-level ${i} \
+    --o-collapsed-table ${TC_DIR}/${RANKS[$i]}/${RANKS[$i]}-table.qza \
+    --verbose 
+
+
+    ### Calculating relative frequencies for the collapsed taxa
+    # Output: Feature table with relative frequencies (rel-lvl1-table.qza) for the collapsed taxa.
+    qiime feature-table relative-frequency \
+    --i-table ${TC_DIR}/${RANKS[$i]}/${RANKS[$i]}-table.qza \
+    --o-relative-frequency-table ${TC_DIR}/${RANKS[$i]}/rel-${RANKS[$i]}-table.qza \
+    --verbose 
+
+    ### Exporting the frequency table
+    qiime tools export \
+    --input-path ${TC_DIR}/${RANKS[$i]}/${RANKS[$i]}-table.qza \
+    --output-path ${TC_DIR}/${RANKS[$i]}
+    biom convert -i ${TC_DIR}/${RANKS[$i]}/feature-table.biom -o ${TC_DIR}/${RANKS[$i]}/${RANKS[$i]}-table.tsv --to-tsv
+
+    ### Exporting the relative frequency table
+    qiime tools export \
+    --input-path ${TC_DIR}/${RANKS[$i]}/rel-${RANKS[$i]}-table.qza \
+    --output-path ${TC_DIR}/${RANKS[$i]}
+    biom convert -i ${TC_DIR}/${RANKS[$i]}/feature-table.biom -o ${TC_DIR}/${RANKS[$i]}/rel-${RANKS[$i]}-table.tsv --to-tsv
+done
+
+echo -e "[      OK     ] Taxonomic analysis is done.\n"
+## -----------------------------------------------------------------------------
+
+# ## Differential abundance testing with ANCOM
+# ## -----------------------------------------------------------------------------
+# echo -e "[   PROCESS   ] Differential abundance testing with ANCOM..."
+
+# # Create differential abundance output directory
+# DA_DIR=$OUTPUT/06_differential_abundance
+# mkdir -p $DA_DIR
+
+# # Adding pseudocounts to the filtered feature table to handle zeros
+# qiime composition add-pseudocount \
+#   --i-table ${FT_DIR}/feature-table.qza \
+#   --o-composition-table ${DA_DIR}/comp-feature-table.qza \
+#   --verbose
+
+# # Performing ANCOM (analysis of composition of microbiomes) using the compositional feature table
+# qiime composition ancom \
+#   --i-table ${DA_DIR}/comp-feature-table.qza \
+#   --m-metadata-file ${INPUT} \
+#   --m-metadata-column Diagnosis \
+#   --p-difference-function 'mean_difference' \
+#   --o-visualization ${DA_DIR}/diff-abundance-diagnosis.qzv \
+#   --verbose
+
+# qiime composition ancom \
+#   --i-table ${DA_DIR}/comp-feature-table.qza \
+#   --m-metadata-file ${INPUT} \
+#   --m-metadata-column Microbiome-type \
+#   --p-difference-function 'mean_difference' \
+#   --o-visualization ${DA_DIR}/diff-abundance-microbiome-type.qzv \
+#   --verbose
+
+# qiime composition ancom \
+#   --i-table ${DA_DIR}/comp-feature-table.qza \
+#   --m-metadata-file ${INPUT} \
+#   --m-metadata-column Feces \
+#   --p-difference-function 'mean_difference' \
+#   --o-visualization ${DA_DIR}/diff-abundance-feces.qzv \
+#   --verbose
+
+# qiime composition ancom \
+#   --i-table ${DA_DIR}/comp-feature-table.qza \
+#   --m-metadata-file ${INPUT} \
+#   --m-metadata-column Nasal-Mucus \
+#   --p-difference-function 'mean_difference' \
+#   --o-visualization ${DA_DIR}/diff-abundance-nasal-mucus.qzv \
+#   --verbose
+
+# qiime composition ancom \
+#   --i-table ${DA_DIR}/comp-feature-table.qza \
+#   --m-metadata-file ${INPUT} \
+#   --m-metadata-column Oropharynx \
+#   --p-difference-function 'mean_difference' \
+#   --o-visualization ${DA_DIR}/diff-abundance-oropharynx.qzv \
+#   --verbose
+
+# qiime composition ancom \
+#   --i-table ${DA_DIR}/comp-feature-table.qza \
+#   --m-metadata-file ${INPUT} \
+#   --m-metadata-column Skin \
+#   --p-difference-function 'mean_difference' \
+#   --o-visualization ${DA_DIR}/diff-abundance-skin.qzv \
+#   --verbose
+
+# qiime composition ancom \
+#   --i-table ${DA_DIR}/comp-feature-table.qza \
+#   --m-metadata-file ${INPUT} \
+#   --m-metadata-column Tracheal-Aspirate \
+#   --p-difference-function 'mean_difference' \
+#   --o-visualization ${DA_DIR}/diff-abundance-tracheal-aspirate.qzv \
+#   --verbose
+
+# echo -e "[      OK     ] Differential abundance testing with ANCOM is done.\n"
+# ## -----------------------------------------------------------------------------
+
+
+## Print end date/time
+## -----------------------------------------------------------------------------                     
+echo -e "[     END     ] $(date)\n"
+## -----------------------------------------------------------------------------  
+
+} ## End of main function
+## -----------------------------------------------------------------------------                     
+
+## Prepare output log file
+## -----------------------------------------------------------------------------                     
+LOG=$( { time main > "$(dirname "${OUTPUT}")"/output.log 2>&1; } 2>&1 )
+echo -e "Duration:${LOG}" >> "$(dirname "${OUTPUT}")"/output.log 2>&1
+## -----------------------------------------------------------------------------                     
+
+exit 0
+
+;;
+
+	n|N ) echo -e "[      OK     ] Process stopped.";;
+	* ) echo -e   "[     ERROR   ] invalid";;
+esac
